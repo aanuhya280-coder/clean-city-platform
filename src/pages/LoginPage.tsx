@@ -4,7 +4,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Shield, Mail, Lock, AlertCircle } from 'lucide-react';
+import { Shield, Mail, Lock, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 const schema = z.object({
   email: z.string().email('Invalid email address'),
@@ -14,20 +14,38 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>;
 
 export default function LoginPage() {
-  const { signIn, user } = useAuth();
+  const { signIn, resendConfirmation, user } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [unconfirmedEmail, setUnconfirmedEmail] = useState<string | null>(null);
+  const [resendStatus, setResendStatus] = useState<'idle' | 'sending' | 'sent'>('idle');
 
-  const { register, handleSubmit, formState: { errors } } = useForm<FormData>({ resolver: zodResolver(schema) });
+  const { register, handleSubmit, formState: { errors }, getValues } = useForm<FormData>({ resolver: zodResolver(schema) });
 
   if (user) return <Navigate to="/" replace />;
 
   const onSubmit = async (data: FormData) => {
     setLoading(true);
     setError(null);
+    setUnconfirmedEmail(null);
+    setResendStatus('idle');
     const result = await signIn(data.email, data.password);
-    if (result.error) setError(result.error);
+    if (result.error) {
+      if (result.error.toLowerCase().includes('email not confirmed')) {
+        setUnconfirmedEmail(data.email);
+      } else {
+        setError(result.error);
+      }
+    }
     setLoading(false);
+  };
+
+  const handleResend = async () => {
+    const email = unconfirmedEmail ?? getValues('email');
+    if (!email) return;
+    setResendStatus('sending');
+    await resendConfirmation(email);
+    setResendStatus('sent');
   };
 
   return (
@@ -46,6 +64,30 @@ export default function LoginPage() {
             <div className="flex items-center gap-2 text-red-600 bg-red-50 px-4 py-3 rounded-lg text-sm">
               <AlertCircle className="w-4 h-4 flex-shrink-0" />
               {error}
+            </div>
+          )}
+
+          {unconfirmedEmail && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm">
+              <p className="font-medium text-amber-800 mb-1">Email not confirmed</p>
+              <p className="text-amber-700 mb-2">
+                Check your inbox for a confirmation link from CleanCity and click it before signing in.
+              </p>
+              {resendStatus === 'sent' ? (
+                <span className="inline-flex items-center gap-1.5 text-green-700 font-medium">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Confirmation email resent!
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleResend}
+                  disabled={resendStatus === 'sending'}
+                  className="text-amber-800 font-medium underline underline-offset-2 disabled:opacity-50"
+                >
+                  {resendStatus === 'sending' ? 'Sending...' : 'Resend confirmation email'}
+                </button>
+              )}
             </div>
           )}
 

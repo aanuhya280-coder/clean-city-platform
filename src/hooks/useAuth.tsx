@@ -8,9 +8,10 @@ interface AuthContextType {
   profile: Profile | null;
   session: Session | null;
   loading: boolean;
-  signUp: (email: string, password: string, fullName: string) => Promise<{ error: string | null }>;
+  signUp: (email: string, password: string, fullName: string) => Promise<{ error: string | null; autoConfirmed: boolean }>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
+  resendConfirmation: (email: string) => Promise<{ error: string | null }>;
   isAdmin: boolean;
   isOfficer: boolean;
   isStaff: boolean;
@@ -81,7 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  async function signUp(email: string, password: string, fullName: string): Promise<{ error: string | null }> {
+  async function signUp(email: string, password: string, fullName: string): Promise<{ error: string | null; autoConfirmed: boolean }> {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -89,16 +90,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         data: { full_name: fullName },
       },
     });
-    if (error) return { error: error.message };
+    if (error) return { error: error.message, autoConfirmed: false };
 
-    // If the user is immediately confirmed (email confirmation disabled),
-    // ensure the profile exists right away
+    // data.session is non-null when email confirmation is disabled in Supabase —
+    // the user is immediately active and we can skip the "check your email" screen.
+    const autoConfirmed = !!data.session;
+
     if (data.user) {
       const p = await ensureProfile(data.user.id, email, fullName);
       setProfile(p);
     }
 
-    return { error: null };
+    return { error: null, autoConfirmed };
   }
 
   async function signIn(email: string, password: string): Promise<{ error: string | null }> {
@@ -112,13 +115,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(null);
   }
 
+  async function resendConfirmation(email: string): Promise<{ error: string | null }> {
+    const { error } = await supabase.auth.resend({ type: 'signup', email });
+    if (error) return { error: error.message };
+    return { error: null };
+  }
+
   const role = profile?.role ?? null;
   const isAdmin = role === 'admin';
   const isOfficer = role === 'officer';
   const isStaff = isAdmin || isOfficer;
 
   return (
-    <AuthContext.Provider value={{ user, profile, session, loading, signUp, signIn, signOut, isAdmin, isOfficer, isStaff, role }}>
+    <AuthContext.Provider value={{ user, profile, session, loading, signUp, signIn, signOut, resendConfirmation, isAdmin, isOfficer, isStaff, role }}>
       {children}
     </AuthContext.Provider>
   );

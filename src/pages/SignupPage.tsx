@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, Navigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -16,6 +16,7 @@ type FormData = z.infer<typeof schema>;
 
 export default function SignupPage() {
   const { signUp, user } = useAuth();
+  const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -30,6 +31,9 @@ export default function SignupPage() {
     const result = await signUp(data.email, data.password, data.fullName);
     if (result.error) {
       setError(result.error);
+    } else if (result.autoConfirmed) {
+      // Email confirmation is disabled in Supabase — user is active immediately.
+      navigate('/', { replace: true });
     } else {
       setSuccess(true);
     }
