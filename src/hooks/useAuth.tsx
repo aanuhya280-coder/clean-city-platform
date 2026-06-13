@@ -49,28 +49,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session: s } }) => {
+    // Seed initial state from getSession, then immediately release the loading gate.
+    // Profile fetch is non-blocking so the app renders even if the DB is slow.
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s);
       setUser(s?.user ?? null);
-      if (s?.user) {
-        const p = await ensureProfile(s.user.id, s.user.email ?? '', s.user.user_metadata?.full_name ?? '');
-        setProfile(p);
-      }
       setLoading(false);
+      if (s?.user) {
+        ensureProfile(s.user.id, s.user.email ?? '', s.user.user_metadata?.full_name ?? '')
+          .then(setProfile);
+      }
     });
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, s) => {
+    } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
       setUser(s?.user ?? null);
-      if (s?.user) {
-        const p = await ensureProfile(s.user.id, s.user.email ?? '', s.user.user_metadata?.full_name ?? '');
-        setProfile(p);
-      } else {
+      if (!s?.user) {
         setProfile(null);
+        return;
       }
-      setLoading(false);
+      // Defer Supabase DB call to avoid the known v2 deadlock where calling
+      // supabase.from() inside onAuthStateChange blocks the auth lock indefinitely.
+      setTimeout(() => {
+        ensureProfile(s.user.id, s.user.email ?? '', s.user.user_metadata?.full_name ?? '')
+          .then(setProfile);
+      }, 0);
     });
 
     return () => subscription.unsubscribe();
